@@ -7,4 +7,4 @@ example_path.Modify()
 example_path.Restore()
 ```
 # Information
-## Many functions are local to hide methods in env.
+## Many functions are local to hide them in env.
