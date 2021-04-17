@@ -79,7 +79,6 @@ local function MemoryPatch(libname, offset, hex)
     newhex = hex..original_hex:sub(#hex+1)
   end
   local hex_gg_list = hex2gg_list(newhex)
-  local is_modifed = false
   ---------- Modify and Restore functions ----------
   this.Modify = function()
     local num = 0
