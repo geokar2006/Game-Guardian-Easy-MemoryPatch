@@ -74,7 +74,7 @@ local function MemoryPatch(libname, offset, hex)
   end
   local original_hex = revers_hex(getHexFromMem(offset, offset+inmemsize, false))
   local original_hex_gg = hex2gg_list(original_hex)
-  local newhex = ""
+  local newhex = hex
   if #hex < #original_hex then
     newhex = hex..original_hex:sub(#hex+1)
   end
