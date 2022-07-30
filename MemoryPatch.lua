@@ -1,108 +1,54 @@
-local function MemoryPatch(libname, offset, hex)
-  local start = 0
-  ---------- FUNCTIONS ----------
-  local function check_hex_symbol(sym)
-    local hexdigts = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, "A", "B", "C", "D", "E", "F", "a", "b", "c", "d", "e", "f"}
-    for _,v in pairs(hexdigts) do
-      if v == sym then
-        return true
-      end
+local function MemoryPatch(lib, offset, hex)
+    local originalHex, ok, modified, hexTable, originalHexTable, libAddr = "", false, false, {}, {}, 0
+
+    ---------- FUNCTIONS ----------
+    local function isValidHex(hex) return #hex > 0 and hex:lower():find("[^%dabcdef]") == nil end
+    local function readMemory(offset, size)
+        local ret = ""
+        local function f(v) v = string.format("%X", v) if #v == 1 then return "0"..v end return v end -- convert int to hex string 
+        for i = 0, size - 1 do ret = ret..f(gg.getValues({{address = offset + i, flags = gg.TYPE_BYTE}})[1].value) end
+        return ret
     end
-    return false
-  end
-  local function check_hex(hex)
-    if #hex == 0 then return false end
-    for i = 1, #hex do
-      if not check_hex_symbol(hex:sub(i, i)) then return false end
+    local function reverseHex(hex)
+        local ret = ""
+        if #hex == 0 then return false end
+        for i = 1, #hex, 2 do ret = ret..hex:sub(i, i + 1) end
+        return ret:upper()
     end
-    return true
-  end
-  local function getHexFromMem(offsetFrom, offsetTo)
-    local length = (offsetTo - offsetFrom) / 4
-    local str = ""
-    local num = 0
-    for i = 1, length, 1 do
-      local h = {}
-      h[1] = {}
-      h[1].address = start + offsetFrom + num
-      h[1].flags = gg.TYPE_DWORD
-      local output = string.format("%x", gg.getValues(h)[1].value)
-      str = str..string.gsub(output,"ffffffff","")
-      num = num + 4
+    -- Convert hex string to gg patch table
+    local function hex2patchTable(hex, offset)
+        local ret = {}
+        local i = 0
+        for v in hex:gmatch("%S%S") do table.insert(ret, {address = offset + i, flags = gg.TYPE_BYTE, value = v.."r"}) i = i + 1 end
+        return ret
     end
-    return str
-  end
-  local function revers_hex(hex)
-    local newhex = ""
-    if #hex == 0 then return false end
-    for g=1, #hex, 8 do 
-      local curhex = string.sub(hex, g, g+7)
-      for i=#curhex, 1, -2 do
-        newhex = newhex..string.sub(curhex, i-1, i)
-      end
+    local methods = {
+        Modify = function() if ok and not modified then gg.setValues(hexTable) modified = true return true end return false end,
+        Restore = function() if ok and modified then gg.setValues(originalHexTable) modified = false return true end return false end,
+        GetInfo = function() return {ok = ok, lib = lib, offset = string.format("0x%X", libAddr).." + "..string.format("0x%X", offset), hex = hex, originalHex = originalHex} end,
+        IsModified = function() return modified end
+    }
+
+    ---------- DO WORK ----------
+    hex = hex:gsub(" ", ""):gsub("0x", ""):upper() -- Remove spaces and 0x
+    if not isValidHex(hex) then print("[MemoryPatch] Hex is wrong for "..methods.GetInfo()) return methods end -- Check Hex
+
+    -- Try find lib
+    for _, v in ipairs(gg.getRangesList(lib)) do
+        if v.type == "r-xp" and v.state == "Xa" then
+            libAddr = v.start
+            ok = true
+            break
+        end
     end
-    return newhex:upper()
-  end
-  local function hex2gg_list(hex)
-    local lst = {}
-    for i=1, #hex, 8 do
-      table.insert(lst, "h"..hex:sub(i, i+7))
+    if not ok then print("[MemoryPatch] Lib not found for "..methods.GetInfo()) return methods end
+    -- Read original hex and fix patch hex if need
+    originalHex = reverseHex(readMemory(libAddr + offset, (#hex + #hex % 2) / 2))
+    if #hex < #originalHex then
+        hex = hex..originalHex:sub(#originalHex) -- Add byte if hex not even length
     end
-    return lst
-  end
-  ---------- DO WORK ----------
-  hex = hex:gsub(" ", "")
-  if not check_hex(hex) then print("Hex has error") return nil end
-  local i = 0
-  if not libname:sub(1, 3) == "lib" then
-    libname = "lib"..libname
-  end
-  local result = gg.getRangesList(libname)
-  while true do
-    i = i + 1
-    if result[i].type == "r-xp" then
-      start = result[i].start
-      break
-    end
-  end
-  local this = {}
-  local inmemsize = 0
-  if #hex % 4 ~= 0 then
-    inmemsize = #hex / 2 + (16 - #hex % 4)
-  else
-    inmemsize = #hex / 2
-  end
-  local original_hex = revers_hex(getHexFromMem(offset, offset+inmemsize, false))
-  local original_hex_gg = hex2gg_list(original_hex)
-  local newhex = hex
-  if #hex < #original_hex then
-    newhex = hex..original_hex:sub(#hex+1)
-  end
-  local hex_gg_list = hex2gg_list(newhex)
-  ---------- Modify and Restore functions ----------
-  this.Modify = function()
-    local num = 0
-    for g,v in ipairs(hex_gg_list) do
-      local h = {}
-      h[1] = {}
-      h[1].address = start + offset + num
-      h[1].flags = gg.TYPE_DWORD
-      h[1].value = v
-      gg.setValues(h)
-      num = num + 4
-    end
-  end
-  this.Restore = function()
-    local num = 0
-    for g,v in ipairs(original_hex_gg) do
-      local h = {}
-      h[1] = {}
-      h[1].address = start + offset + num
-      h[1].flags = gg.TYPE_DWORD
-      h[1].value = v
-      gg.setValues(h)
-      num = num + 4
-    end
-  end
-  return this
+    hexTable = hex2patchTable(hex, libAddr + offset)
+    originalHexTable = hex2patchTable(originalHex, libAddr + offset)
+
+    return methods
 end
