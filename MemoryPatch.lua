@@ -35,7 +35,7 @@ local function MemoryPatch(lib, offset, hex)
 
     -- Try find lib
     for _, v in ipairs(gg.getRangesList(lib)) do
-        if v.type == "r-xp" and v.state == "Xa" then
+        if v.type == "r-xp" or v.state == "Xa" then
             libAddr = v.start
             ok = true
             break
